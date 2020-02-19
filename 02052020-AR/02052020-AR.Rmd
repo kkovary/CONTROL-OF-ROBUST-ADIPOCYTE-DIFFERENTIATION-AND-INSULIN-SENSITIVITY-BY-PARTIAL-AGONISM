@@ -1,0 +1,237 @@
+---
+title: "Calibration of CEBPb and CEBPa - 02052020-AR"
+author: "Atefeh Rabiee and Kyle Kovary"
+date: 'Updated: `r Sys.time()`'
+output:
+      html_document:
+        highlight: tango
+        number_sections: yes
+        toc: yes
+        toc_depth: 4
+        code_folding: hide
+---
+\fontsize{7}{10}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+In order to obtain the stoichiometry of CEBPa and CEBPb and how their relative abundances relate to PPARg abundance, cells were infected with a calibration construct. A linear model was fit to the calibration construct in order to model the 1:1 stoichiometry between CEBPa and CEBPb. Additionally, multiple over expression constructs were used to titrate the expression of CEBPa and CEBPb using dox.
+
+Looking at your data, here are the 2 experiments I think would be needed. i think they should be relatively easy to do: 1) overexpress CEBPB for 48 hours while knocking down CEBPA, plot calibrated PPARG vs CEBPB, if possible gate for low CEBPA expression; AND 2) Differentiate cells for 96 hours with DMI, induce CEBPB for 48 hours or control induction or CEBPB knockdown, measure calibrated CEBPA, CEBPB and PPARG, plot PPARG versus CEBPA for low, intermediate and high CEBPB, determine effect of equimolar CEBPB on PPARG expression. 
+
+With the first experiment, the goal is to test whether it is true that CEBPB cannot activate PPARG as well as CEBPA, but the complication is that we are always producing CEBPA when we OX-CEBPB. We have alot of evidence for this being true that CEBPB cannot activate PPARG as well as CEBPA, but we need to cleanly show it.
+
+With the second experiment, you have already shown that knocking down CEBPB late increases PPARG expression and CEBPA has the opposite effect. Here we just want to just show it again but this time quantify the levels of CEBPB and CEBPA.
+
+\ 
+
+In this experiment Dapi is channel 1, PPARg is channel 2, CEBPB is channel 3, and CEBPA is channel 4.
+
+
+## Import libraries
+```{r import, eval=TRUE, include=TRUE}
+# Import libraries
+library(tidyverse)
+library(viridis)
+library(ggridges)
+library(ggpointdensity)
+library(cowplot)
+```
+
+## Initial Data Import
+```{r eval=FALSE, include=TRUE}
+#Import MACKtrack import function from Fluffy
+source('/Volumes/labdata/kyle/R functions/MACKimport.R')
+
+exp_1 <- MACKimport('/Volumes/labdata2/atefeh/02052020-AR/Tracking/AllData_R.mat')
+exp_2 <- MACKimport('/Volumes/labdata2/atefeh/02052020-AR/tracking2/AllData_R.mat')
+
+saveRDS(exp_1, "exp_1.RDS")
+saveRDS(exp_2, "exp_2.RDS")
+
+```
+
+Channels:
+
+1) Dapi
+2) Pparg (YFP)
+3) Cebpb (mCherry)
+4) Cebpa (Cy5)
+
+# Experiment 1
+
+With the first experiment, the goal is to test whether it is true that CEBPB cannot activate PPARG to the same degree that CEBPA can. The complication is that we are always producing CEBPA when we OX-CEBPB. We have alot of evidence for this being true that CEBPB cannot activate PPARG as well as CEBPA, but we need to cleanly show it. To overcome this complication, we overexpressed CEBPB for 48 hours while knocking down CEBPA.
+
+In the analysis below we will show:
+* calibrated PPARG vs CEBPB, if possible gate for low CEBPA expression
+
+
+## Import and clean data
+```{r clean, eval=TRUE, include=TRUE}
+
+exp_1 <- readRDS("exp_1.RDS")
+exp_1 <- exp_1 %>% mutate(Condition = gsub('0x2E','.', Condition),
+                          Condition = gsub("C_", "C_NA_", Condition)) %>%
+  separate(Condition, into = c("cell","siRNA","dox","rep"), sep = "_", remove = FALSE)
+
+
+```
+
+## Filter out very low and very high integrated Dapi cells
+```{r dapi, fig.height=10}
+ggplot(exp_1, aes(x = log2(MeanNuc1), y = Condition)) + geom_density_ridges2(scale = 5) +
+  xlim(5,12) + theme_bw() +
+  geom_vline(xintercept = c(6,10.5), color = "red", linetype = "dashed")
+
+exp_1 <- exp_1 %>% filter(log2(MeanNuc1) > 6, log2(MeanNuc1) < 10.5)
+```
+
+## Density plots for CEBPa, CEBPb, and PPARg for all 4 plates
+
+```{r density_plots, echo=FALSE, fig.height=4.2}
+exp_1 %>% filter(cell != 'C') %>%
+  rename(Pparg = MeanNuc2, Cebpb = MeanNuc3, Cebpa = MeanNuc4) %>%
+  pivot_longer(cols = c(Pparg, Cebpb, Cebpa), values_to = 'Intensity', names_to = 'Protein') %>%
+  ggplot(., aes(x = log2(Intensity), 
+                color = dox, linetype = siRNA)) + 
+  geom_density(size = 1) + 
+  facet_wrap(~Protein, ncol = 1, scales = 'free') + theme_bw(base_size = 20) +
+  #theme(text = element_text(size=15)) + 
+  xlim(0, NA)
+
+```
+
+## Fitting linear model for 1:1 stoichiometry of CEBPa and CEBPb
+
+```{r fig.height=2, fig.width=2}
+
+# Calibration region
+exp_1 %>% filter(cell == "C") %>%
+  #sample_n(1E5) %>%
+  ggplot(., aes(x = log2(MeanNuc3), 
+                y = log2(MeanNuc4))) + 
+  annotate('rect', 
+           xmin = 11, 
+           xmax = Inf, 
+           ymin = 11, 
+           ymax = Inf, 
+           alpha = 0.2, 
+           fill = 'red') +
+  geom_point(alpha = 0.1, size = 0.25) +
+  theme_bw() +
+  xlim(5,NA) + ylim(5,NA)
+
+# Fit linear model
+calibration <- exp_1 %>% filter(cell == "C",
+                                log2(MeanNuc3) > 11,
+                                log2(MeanNuc4) > 11) %>%
+  lm(log2(MeanNuc3) ~ log2(MeanNuc4), data = .)
+
+# Calibration region with linear model
+exp_1 %>% filter(cell == "C",
+                 log2(MeanNuc3) > 11,
+                 log2(MeanNuc4) > 11) %>%
+  ggplot(., aes(x = log2(MeanNuc3), y = log2(MeanNuc4))) + geom_point() +
+  geom_abline(intercept = calibration$coefficients[1],
+              slope = calibration$coefficients[2],
+              color = 'red', size = 3, alpha = 0.5) +
+  theme_bw() + xlim(NA,15) + ylim(NA,15)
+```
+
+
+
+## Pairwise plots of CEBPa and CEBPb with linear model
+```{r, echo=TRUE, fig.height=7.5, fig.width=6.8}
+exp_1 %>% filter(cell != 'C') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  ggplot(., aes(x = log2(Cebpa), 
+                y = log2(Cebpb), 
+                colour = log2(Pparg))) +
+  geom_point(size = 0.2, alpha = 0.2) + 
+  facet_wrap(siRNA~dox) + 
+  geom_abline(intercept = calibration$coefficients[1], 
+              slope = calibration$coefficients[2],
+              color = 'red',
+              size = 1,
+              linetype = 'dashed') +
+  theme_bw(base_size = 20) + 
+  scale_color_viridis(direction = -1) +
+  ylim(2,14) + xlim(2, 14)
+```
+
+Here CEBPa and CEBPb are plotted together with the linear model of the 1:1 stoichiometry between the two proteins from the calibration construct. PPARg abundance is represented by the color gradient, with darker blue representing high PPARg. Interestingly, it seems that the higher dox concentrations have a sub-population of high PPARg expressing cells that are below the diagonal (higher CEBPa to CEBPb) and higher in both CEBPa and CEBPb. It would be very interesting to see how this population moves during the time course of differentiation or under a dox titration with a later time point.
+
+```{r, echo=TRUE, fig.height=7.5, fig.width=6.8}
+exp_1 %>% filter(cell != 'C') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  mutate(`Cebpb/Cebpa` = Cebpb / Cebpa) %>%
+  ggplot(., aes(x = log2(`Cebpb/Cebpa`), 
+                y = log2(Pparg))) +
+  geom_point(size = 0.2, alpha = 0.2) + 
+  facet_wrap(siRNA~dox) + 
+  theme_bw(base_size = 20)
+```
+
+```{r, echo=TRUE, fig.height=7.5, fig.width=6.8}
+exp_1 %>% filter(cell != 'C') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  ggplot(., aes(x = log2(Cebpa), 
+                y = log2(Cebpb), 
+                colour = log2(Pparg))) +
+  geom_bin2d(bins = 100) + 
+  facet_wrap(siRNA~dox) + 
+  geom_abline(intercept = calibration$coefficients[1], 
+              slope = calibration$coefficients[2],
+              color = 'red',
+              size = 1,
+              linetype = 'dashed') +
+  theme_bw(base_size = 20) + 
+  scale_fill_viridis(direction = 1) +
+  ylim(2,14) + xlim(2, 14)
+```
+
+Density plot showing where most of the cell density is from the previous plot.
+
+```{r fig.height=8, fig.width=5}
+p1 <- exp_1 %>% filter(cell != 'C',
+                 siRNA != 'NCsiRNA') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 11,
+         log2(Cebpb) > 5) %>%
+  mutate(interval = cut_interval(log2(Cebpa), n = 5)) %>%
+  ggplot(., aes(x = Cebpb,
+                y = Pparg)) +
+  geom_point(size = 0.2, alpha = 0.2) + facet_grid(dox~interval) +
+  ylim(NA,1000) + xlim(0, 15000) +
+  theme_bw()
+
+p2 <- exp_1 %>% filter(cell != 'C',
+                 siRNA == 'NCsiRNA') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 11,
+         log2(Cebpb) > 5) %>%
+  mutate(interval = cut_interval(log2(Cebpa), n = 5)) %>%
+  ggplot(., aes(x = Cebpb,
+                y = Pparg)) +
+  geom_point(size = 0.2, alpha = 0.2) + facet_grid(dox~interval) +
+  ylim(NA,1000) + xlim(0, 15000) +
+  theme_bw()
+
+plot_grid(p1,p2, ncol = 1, labels = "AUTO", rel_heights = c(7,1.2))
+```
+
