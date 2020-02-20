@@ -8,6 +8,7 @@ output:
         number_sections: yes
         toc: yes
         toc_depth: 4
+        toc_float: yes
         code_folding: hide
 ---
 \fontsize{7}{10}
@@ -440,9 +441,9 @@ p1 <- exp_2 %>% filter(cell == "C",
   ggplot(., aes(x = log2(MeanNuc3), 
                 y = log2(MeanNuc4))) + 
   annotate('rect', 
-           xmin = 11, 
+           xmin = 12, 
            xmax = Inf, 
-           ymin = 11, 
+           ymin = 12, 
            ymax = Inf, 
            alpha = 0.2, 
            fill = 'red') +
@@ -452,17 +453,17 @@ p1 <- exp_2 %>% filter(cell == "C",
   xlab('log2(Cebpb)') + ylab('log2(Cebpa)')
 
 # Fit linear model
-calibration <- exp_1 %>% filter(cell == "C",
+calibration <- exp_2 %>% filter(cell == "C",
                                 dox != "NA",
-                                log2(MeanNuc3) > 11,
-                                log2(MeanNuc4) > 11) %>%
+                                log2(MeanNuc3) > 12,
+                                log2(MeanNuc4) > 12) %>%
   lm(log2(MeanNuc3) ~ log2(MeanNuc4), data = .)
 
 # Calibration region with linear model
 p2 <- exp_2 %>% filter(cell == "C",
                        dox != "NA",
-                 log2(MeanNuc3) > 11,
-                 log2(MeanNuc4) > 11) %>%
+                 log2(MeanNuc3) > 12,
+                 log2(MeanNuc4) > 12) %>%
   ggplot(., aes(x = log2(MeanNuc3), y = log2(MeanNuc4))) + geom_point() +
   geom_abline(intercept = calibration$coefficients[1],
               slope = calibration$coefficients[2],
@@ -698,3 +699,45 @@ plot_grid(plots,legend,
 A) Pairwise plot of mean Pparg abundance vs segments of Cebpb abundance (50 segments of equal step sizes, similar to A in previous plot) color coded by Cebpa abundance intervals (see A in previous plot). Error bars are SEM.
 
 B) Similar to A except that the x-axis is an interval is of log2(Cebpb / Cebpa). Interestingly, when the ratio of Cebpb / Cebpa is around 15, mean Pparg levels begin to flatten out, same ratio as in the previous experiment!!
+
+## Diagram showing the segmentation for the ratio plot
+
+```{r fig.height=4, fig.width=4}
+rect <- tibble(begin = c(4, 5.6, 7.2, 8.8, 10.4),
+               end = c(5.6, 7.2, 8.8, 10.4, 12),
+               color = letters[1:5])
+
+exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12,
+         cell != 'C',
+         media == 'constant',
+         siRNA == 'NA') %>%
+  mutate(`Cebpb/Cebpa` = Cebpb/Cebpa,
+         cebpa_interval = cut_interval(log2(Cebpa), n = 5),
+         ratio_interval = cut_number(`Cebpb/Cebpa`, n = 5)) %>%
+  ggplot(., aes(x = log2(Cebpa), 
+                y = log2(Cebpb),
+                color = ratio_interval)) +
+  geom_rect(data = rect, 
+            inherit.aes = FALSE, 
+            aes(xmin = begin, xmax = end, 
+                ymin = 4, ymax = 16, 
+                fill = color, alpha = 0.1)) +
+  geom_point(size = .25, stroke = 0, shape = 16) + 
+  scale_color_viridis(discrete = TRUE) +
+  geom_vline(xintercept = c(4, 5.6, 7.2, 8.8, 10.4, 12),
+                            color = 'black', 
+             linetype = 'dashed') +
+  geom_abline(slope = calibration$coefficients[2], 
+              intercept = calibration$coefficients[1],
+              color = 'blue',
+              linetype = 'dashed') +
+  xlim(4,12) + ylim(4,16) +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
