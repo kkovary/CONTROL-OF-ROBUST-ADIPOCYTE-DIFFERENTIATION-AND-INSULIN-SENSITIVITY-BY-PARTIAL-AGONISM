@@ -22,9 +22,9 @@ knitr::opts_chunk$set(warning = FALSE,
 
 In order to obtain the stoichiometry of CEBPa and CEBPb and how their relative abundances relate to PPARg abundance, cells were infected with a calibration construct. A linear model was fit to the calibration construct in order to model the 1:1 stoichiometry between CEBPa and CEBPb. Additionally, multiple over expression constructs were used to titrate the expression of CEBPa and CEBPb using dox.
 
-Looking at your data, here are the 2 experiments I think would be needed. i think they should be relatively easy to do: 1) overexpress CEBPB for 48 hours while knocking down CEBPA, plot calibrated PPARG vs CEBPB, if possible gate for low CEBPA expression; AND 2) Differentiate cells for 96 hours with DMI, induce CEBPB for 48 hours or control induction or CEBPB knockdown, measure calibrated CEBPA, CEBPB and PPARG, plot PPARG versus CEBPA for low, intermediate and high CEBPB, determine effect of equimolar CEBPB on PPARG expression. 
+Looking at your data, here are the 2 experiments I think would be needed. i think they should be relatively easy to do: 1) over-express CEBPB for 48 hours while knocking down CEBPA, plot calibrated PPARG vs CEBPB, if possible gate for low CEBPA expression; AND 2) Differentiate cells for 96 hours with DMI, induce CEBPB for 48 hours or control induction or CEBPB knockdown, measure calibrated CEBPA, CEBPB and PPARG, plot PPARG versus CEBPA for low, intermediate and high CEBPB, determine effect of equimolar CEBPB on PPARG expression. 
 
-With the first experiment, the goal is to test whether it is true that CEBPB cannot activate PPARG as well as CEBPA, but the complication is that we are always producing CEBPA when we OX-CEBPB. We have alot of evidence for this being true that CEBPB cannot activate PPARG as well as CEBPA, but we need to cleanly show it.
+With the first experiment, the goal is to test whether it is true that CEBPB cannot activate PPARG as well as CEBPA, but the complication is that we are always producing CEBPA when we OX-CEBPB. We have a lot of evidence for this being true that CEBPB cannot activate PPARG as well as CEBPA, but we need to cleanly show it.
 
 With the second experiment, you have already shown that knocking down CEBPB late increases PPARG expression and CEBPA has the opposite effect. Here we just want to just show it again but this time quantify the levels of CEBPB and CEBPA.
 
@@ -65,7 +65,7 @@ Channels:
 
 # Experiment 1
 
-With the first experiment, the goal is to test whether it is true that CEBPB cannot activate PPARG to the same degree that CEBPA can. The complication is that we are always producing CEBPA when we OX-CEBPB. We have alot of evidence for this being true that CEBPB cannot activate PPARG as well as CEBPA, but we need to cleanly show it. To overcome this complication, we overexpressed CEBPB for 48 hours while knocking down CEBPA.
+With the first experiment, the goal is to test whether it is true that CEBPB cannot activate PPARG to the same degree that CEBPA can. The complication is that we are always producing CEBPA when we OX-CEBPB. We have a lot of evidence for this being true that CEBPB cannot activate PPARG as well as CEBPA, but we need to cleanly show it. To overcome this complication, we over-expressed CEBPB for 48 hours while knocking down CEBPA.
 
 In the analysis below we will show:
 * calibrated PPARG vs CEBPB, if possible gate for low CEBPA expression
@@ -269,4 +269,113 @@ A. Histogram with 5 intervals of Cebpa abundance that is used in the following f
 
 B. Pairwise plots between Cebpb and Pparg from cells that were treated with siRNA targeting Cebpa. Plots are separated based on Cebpa expression (A) and dox concentration.
 
-C. Same sheme as B, but these cells were treated with non-targeting siRNA.
+C. Same scheme as B, but these cells were treated with non-targeting siRNA.
+
+## Mean Pparg abundance across intervals of Cebpa and Cebpb abundances
+
+```{r}
+p1 <- exp_1 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 11,
+         log2(Cebpb) > 5,
+         log2(Pparg) > 4,
+         log2(Pparg) < 10,
+         cell != 'C',
+         siRNA != 'NCsiRNA') %>%
+  mutate(cebpa_interval = cut_interval(log2(Cebpa), n = 5),
+         cebpb_interval = cut_interval(log2(Cebpb), n = 50)) %>%
+  unite(col = 'condition', siRNA, dox, sep = '_') %>%
+  group_by(cebpa_interval, cebpb_interval) %>%
+  summarise(mean_pparg = mean(Pparg, na.rm = T),
+            n = n(),
+            sd = sd(Pparg, na.rm = T),
+            sem = sd / sqrt(n)) %>%
+  filter(n >= 10) %>%
+  ggplot(., aes(x = cebpb_interval,
+                y = mean_pparg,
+                color = cebpa_interval,
+                group = cebpa_interval)) +
+  geom_path() + 
+  geom_point() +
+  geom_errorbar(aes(ymin = mean_pparg - sem, 
+                    ymax = mean_pparg + sem),
+                width = 0) +
+  ylim(0,500) +
+  theme_classic() +
+  theme(text = element_text(size=10),
+          legend.position="none",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+
+
+p2 <- exp_1 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 11,
+         log2(Cebpb) > 5,
+         log2(Pparg) > 4,
+         log2(Pparg) < 10,
+         cell != 'C',
+         siRNA != 'NCsiRNA') %>%
+  mutate(`Cebpb/Cebpa` = Cebpb/Cebpa,
+         cebpa_interval = cut_interval(log2(Cebpa), n = 5),
+         ratio_interval = cut_interval(`Cebpb/Cebpa`, n = 50)) %>%
+  unite(col = 'condition', siRNA, dox, sep = '_') %>%
+  group_by(cebpa_interval, ratio_interval) %>%
+  summarise(mean_pparg = mean(Pparg, na.rm = T),
+            n = n(),
+            sd = sd(Pparg, na.rm = T),
+            sem = sd / sqrt(n)) %>%
+  filter(n >= 10) %>%
+  ggplot(., aes(x = ratio_interval,
+                y = mean_pparg,
+                color = cebpa_interval,
+                group = cebpa_interval)) +
+  geom_point() +
+  geom_vline(xintercept = 14, linetype = 'dashed') +
+  geom_path() + 
+  geom_errorbar(aes(ymin = mean_pparg - sem, 
+                    ymax = mean_pparg + sem),
+                width = 0) +
+  ylim(0,500) +
+  theme_classic() +
+  theme(text = element_text(size=10),
+          legend.position="none",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+legend <- get_legend(
+  exp_1 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 11,
+         log2(Cebpb) > 5,
+         log2(Pparg) > 4,
+         log2(Pparg) < 10,
+         cell != 'C',
+         siRNA != 'NCsiRNA') %>%
+  mutate(cebpa_interval = cut_interval(log2(Cebpa), n = 5)) %>%
+    ggplot(., aes(x = Pparg, fill = cebpa_interval)) +
+    geom_histogram() +
+    theme(legend.position = 'bottom')
+)
+
+plots <- plot_grid(p1,p2,
+                   axis = 'b',
+                   align = 'h',
+                   labels = 'AUTO')
+
+plot_grid(plots,legend,
+          ncol = 1,
+          rel_heights = c(2,0.4))
+```
+
+A) Pairwise plot of mean Pparg abundance vs segments of Cebpb abundance (50 segments of equal step sizes, similar to A in previous plot) color coded by Cebpa abundance intervals (see A in previous plot). Error bars are SEM.
+
+B) Similar to A except that the x-axis is an interval is of log2(Cebpb / Cebpa). Interestingly, when the ratio of Cebpb / Cebpa is around 15, mean Pparg levels begin to drop (dashed line). In fact, for the highest levels of Cebpa (purple) the ratio never crosses past this point.
