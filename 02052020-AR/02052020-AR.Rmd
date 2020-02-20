@@ -72,7 +72,7 @@ In the analysis below we will show:
 
 
 ## Import and clean data
-```{r clean, eval=TRUE, include=TRUE}
+```{r clean1, eval=TRUE, include=TRUE}
 
 exp_1 <- readRDS("exp_1.RDS")
 exp_1 <- exp_1 %>% mutate(Condition = gsub('0x2E','.', Condition),
@@ -379,3 +379,322 @@ plot_grid(plots,legend,
 A) Pairwise plot of mean Pparg abundance vs segments of Cebpb abundance (50 segments of equal step sizes, similar to A in previous plot) color coded by Cebpa abundance intervals (see A in previous plot). Error bars are SEM.
 
 B) Similar to A except that the x-axis is an interval is of log2(Cebpb / Cebpa). Interestingly, when the ratio of Cebpb / Cebpa is around 15, mean Pparg levels begin to drop (dashed line). In fact, for the highest levels of Cebpa (purple) the ratio never crosses past this point.
+
+
+# Experiment 2
+
+## Import and clean data
+```{r clean2, eval=TRUE, include=TRUE}
+#cell_media_siRNA_dox_rep
+
+exp_2 <- readRDS("exp_2.RDS")
+exp_2 <- exp_2 %>% mutate(
+  Condition = gsub('0x2E', '.', Condition),
+  Condition = gsub("constant_d", "constant_NA_d", Condition),
+  Condition = gsub("refreshed_d", "refreshed_NA_d", Condition),
+  Condition = gsub("cebpbsiRNA_", "cebpbsiRNA_dox0_", Condition),
+  Condition = gsub("C_R", "C_NA_NA_NA_R", Condition),
+  Condition = gsub("C_d", "C_NA_NA_d", Condition)
+) %>%
+  separate(
+    Condition,
+    into = c("cell", "media", "siRNA", "dox", "rep"),
+    sep = "_",
+    remove = FALSE
+  ) 
+```
+
+## Filter out very low and very high integrated Dapi cells
+```{r dapi2, fig.height=10}
+ggplot(exp_2, aes(x = log2(MeanNuc1), y = Condition)) + geom_density_ridges2(scale = 5) +
+  xlim(5,12) + theme_bw() +
+  geom_vline(xintercept = c(7,10.5), color = "red", linetype = "dashed")
+
+exp_2 <- exp_2 %>% filter(log2(MeanNuc1) > 7, log2(MeanNuc1) < 10.5)
+```
+
+## Density plots for CEBPa, CEBPb, and PPARg
+
+```{r density_plots2, echo=FALSE, fig.width = 10, fig.height=5}
+exp_2 %>% filter(cell != 'C') %>%
+  rename(Pparg = MeanNuc2, Cebpb = MeanNuc3, Cebpa = MeanNuc4) %>%
+  pivot_longer(cols = c(Pparg, Cebpb, Cebpa), values_to = 'Intensity', names_to = 'Protein') %>%
+  ggplot(., aes(x = log2(Intensity), 
+                color = dox, linetype = siRNA)) + 
+  geom_density(size = 1) + 
+  facet_grid(media~Protein) + theme_bw(base_size = 20) +
+  theme(text = element_text(size=10),
+          legend.position="bottom") +
+  xlim(0, NA)
+
+```
+
+## Fitting linear model for 1:1 stoichiometry of CEBPa and CEBPb
+
+```{r fig.height=2.5, fig.width=6}
+
+# Calibration region
+p1 <- exp_2 %>% filter(cell == "C",
+                       dox != "NA") %>%
+  #sample_n(1E5) %>%
+  ggplot(., aes(x = log2(MeanNuc3), 
+                y = log2(MeanNuc4))) + 
+  annotate('rect', 
+           xmin = 11, 
+           xmax = Inf, 
+           ymin = 11, 
+           ymax = Inf, 
+           alpha = 0.2, 
+           fill = 'red') +
+  geom_point(alpha = 0.1, size = 0.25) +
+  theme_bw() +
+  xlim(5,NA) + ylim(5,NA) +
+  xlab('log2(Cebpb)') + ylab('log2(Cebpa)')
+
+# Fit linear model
+calibration <- exp_1 %>% filter(cell == "C",
+                                dox != "NA",
+                                log2(MeanNuc3) > 11,
+                                log2(MeanNuc4) > 11) %>%
+  lm(log2(MeanNuc3) ~ log2(MeanNuc4), data = .)
+
+# Calibration region with linear model
+p2 <- exp_2 %>% filter(cell == "C",
+                       dox != "NA",
+                 log2(MeanNuc3) > 11,
+                 log2(MeanNuc4) > 11) %>%
+  ggplot(., aes(x = log2(MeanNuc3), y = log2(MeanNuc4))) + geom_point() +
+  geom_abline(intercept = calibration$coefficients[1],
+              slope = calibration$coefficients[2],
+              color = 'red', size = 3, alpha = 0.5) +
+  theme_bw() + xlim(NA,15) + ylim(NA,15)
+
+plot_grid(p1,p2, labels = 'AUTO')
+```
+
+## Pairwise plots of CEBPa and CEBPb with linear model
+```{r, echo=TRUE, fig.height=7.5, fig.width=6.8}
+exp_2 %>% filter(cell != 'C') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  ggplot(., aes(x = log2(Cebpa), 
+                y = log2(Cebpb), 
+                colour = log2(Pparg))) +
+  geom_point(size = 0.2, alpha = 0.2) + 
+  facet_wrap(siRNA~dox) + 
+  geom_abline(intercept = calibration$coefficients[1], 
+              slope = calibration$coefficients[2],
+              color = 'red',
+              size = 1,
+              linetype = 'dashed') +
+  scale_color_viridis(direction = -1) +
+  ylim(2,16) + xlim(2, 16) +
+  theme_bw() +
+  theme(text = element_text(size=10),
+          legend.position="bottom")
+```
+
+Here CEBPa and CEBPb are plotted together with the linear model of the 1:1 stoichiometry between the two proteins from the calibration construct. PPARg abundance is represented by the color gradient, with darker blue representing high PPARg.
+
+```{r, echo=TRUE, fig.height=7.5, fig.width=6.8}
+exp_2 %>% filter(cell != 'C') %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  ggplot(., aes(x = log2(Cebpa), 
+                y = log2(Cebpb), 
+                colour = log2(Pparg))) +
+  geom_bin2d(bins = 100) + 
+  facet_wrap(siRNA~dox) + 
+  geom_abline(intercept = calibration$coefficients[1], 
+              slope = calibration$coefficients[2],
+              color = 'red',
+              size = 1,
+              linetype = 'dashed') +
+  scale_fill_viridis(direction = 1) +
+  ylim(2,16) + xlim(2, 16) +
+  theme_bw() +
+  theme(text = element_text(size=10),
+          legend.position="bottom")
+```
+
+Density plot showing where most of the cell density is from the previous plot.
+
+```{r fig.height=10, fig.width=6}
+p1 <- exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12) %>%
+  mutate(interval = cut_interval(log2(Cebpa), n = 5)) %>%
+  ggplot(., aes(x = log2(Cebpa), 
+                fill = interval)) +
+  geom_histogram(bins = 500) + theme_bw() +
+  theme(text = element_text(size=10),
+          legend.position="top") +
+  xlim(4,12)
+
+p2 <- exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12,
+         log2(Cebpb) > 4) %>%
+  mutate(interval = cut_interval(log2(Cebpa), n = 5)) %>%
+  filter(cell != 'C',
+         siRNA != 'NCsiRNA') %>% 
+  ggplot(., aes(x = Cebpb,
+                y = Pparg)) +
+  geom_point(size = 0.2, 
+             alpha = 0.2,
+             aes(color = interval)) + 
+  facet_grid(dox~interval) +
+  ylim(NA,1000) + xlim(0, 15000) +
+  theme_bw() +
+  theme(text = element_text(size=10),
+          legend.position="none")
+
+p3 <- exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12,
+         log2(Cebpb) > 4) %>%
+  mutate(interval = cut_interval(log2(Cebpa), n = 5)) %>%
+  filter(cell != 'C',
+         siRNA == 'NCsiRNA') %>% 
+  ggplot(., aes(x = Cebpb,
+                y = Pparg)) +
+  geom_point(size = 0.2, 
+             alpha = 0.2,
+             aes(color = interval)) + 
+  facet_grid(dox~interval) +
+  ylim(NA,1000) + xlim(0, 15000) +
+  theme_bw() +
+  theme(text = element_text(size=10),
+          legend.position="none")
+
+plot_grid(p1,p2,p3, 
+          ncol = 1, 
+          labels = "AUTO", 
+          rel_heights = c(3,8,2),
+          axis = 'l',
+          align = 'v'
+          )
+```
+
+A. Histogram with 5 intervals of Cebpa abundance that is used in the following figures.
+
+B. Pairwise plots between Cebpb and Pparg from cells that were treated with siRNA targeting Cebpa. Plots are separated based on Cebpa expression (A) and dox concentration.
+
+C. Same scheme as B, but these cells were treated with non-targeting siRNA.
+
+## Mean Pparg abundance across intervals of Cebpa and Cebpb abundances
+
+```{r fig.width=8}
+p1 <- exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12,
+         !is.na(log2(Cebpb)),
+         cell != 'C',
+         media == 'constant',
+         siRNA == 'NA') %>%
+  mutate(cebpa_interval = cut_interval(log2(Cebpa), n = 5),
+         cebpb_interval = cut_interval(log2(Cebpb), n = 50)) %>%
+  group_by(cebpa_interval, cebpb_interval) %>%
+  summarise(mean_pparg = mean(Pparg, na.rm = T),
+            n = n(),
+            sd = sd(Pparg, na.rm = T),
+            sem = sd / sqrt(n)) %>%
+  filter(n >= 20) %>%
+  ggplot(., aes(x = cebpb_interval,
+                y = mean_pparg,
+                color = cebpa_interval,
+                group = cebpa_interval)) +
+  geom_path() + 
+  geom_point() +
+  geom_errorbar(aes(ymin = mean_pparg - sem, 
+                    ymax = mean_pparg + sem),
+                width = 0) +
+  ylim(0,NA) +
+  theme_classic() +
+  theme(text = element_text(size=10),
+          legend.position="none",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+
+
+p2 <- exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12,
+         cell != 'C',
+         media == 'constant',
+         siRNA == 'NA') %>%
+  mutate(`Cebpb/Cebpa` = Cebpb/Cebpa,
+         cebpa_interval = cut_interval(log2(Cebpa), n = 5),
+         ratio_interval = cut_interval(`Cebpb/Cebpa`, n = 50)) %>%
+  group_by(cebpa_interval, 
+           ratio_interval) %>%
+  summarise(mean_pparg = mean(Pparg, na.rm = T),
+            n = n(),
+            sd = sd(Pparg, na.rm = T),
+            sem = sd / sqrt(n)) %>%
+  filter(n >= 20) %>%
+  ggplot(., aes(x = ratio_interval,
+                y = mean_pparg,
+                color = cebpa_interval,
+                group = cebpa_interval)) +
+  geom_point() +
+  geom_vline(xintercept = 15, linetype = 'dashed') +
+  geom_path() + 
+  geom_errorbar(aes(ymin = mean_pparg - sem, 
+                    ymax = mean_pparg + sem),
+                width = 0) +
+  ylim(0,NA) +
+  theme_classic() +
+  theme(text = element_text(size=10),
+          legend.position="none",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+
+
+legend <- get_legend(
+  exp_2 %>% 
+  rename(Pparg = MeanNuc2, 
+         Cebpb = MeanNuc3, 
+         Cebpa = MeanNuc4) %>%
+  filter(log2(Cebpa) > 4,
+         log2(Cebpa) < 12,
+         log2(Cebpb) > 4,
+         log2(Pparg) > 4,
+         log2(Pparg) < 12,
+         cell != 'C',
+         siRNA != 'NCsiRNA') %>%
+  mutate(cebpa_interval = cut_interval(log2(Cebpa), n = 5)) %>%
+    ggplot(., aes(x = Pparg, fill = cebpa_interval)) +
+    geom_histogram() +
+    theme(legend.position = 'bottom')
+)
+
+plots <- plot_grid(p1,p2,
+                   axis = 'b',
+                   align = 'h',
+                   labels = 'AUTO')
+
+plot_grid(plots,legend,
+          ncol = 1,
+          rel_heights = c(2,0.4))
+```
+
+A) Pairwise plot of mean Pparg abundance vs segments of Cebpb abundance (50 segments of equal step sizes, similar to A in previous plot) color coded by Cebpa abundance intervals (see A in previous plot). Error bars are SEM.
+
+B) Similar to A except that the x-axis is an interval is of log2(Cebpb / Cebpa). Interestingly, when the ratio of Cebpb / Cebpa is around 15, mean Pparg levels begin to flatten out, same ratio as in the previous experiment!!
